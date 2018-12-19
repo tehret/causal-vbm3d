@@ -185,9 +185,10 @@ int main(int argc, char **argv)
 	using std::string;
 	const string  input_path = clo_option("-i"    , ""              , "< input sequence");
 	const string  final_path = clo_option("-deno" , "deno_%03d.tiff" , "> denoised sequence");
+	const string  sigma_path = clo_option("-sigma_path", "", "standard deviation sigma path");
 
 	//! General parameters
-	const float fSigma = clo_option("-sigma", 0.f, "Add noise of standard deviation sigma");
+	const float fSigma = clo_option("-sigma", 0.f, "Standard deviation sigma to initialize parameters");
 
 	//! VBM3D parameters
 	const int kHard = clo_option("-kHard", -1 , "< ");
@@ -294,10 +295,24 @@ int main(int argc, char **argv)
     int w,h,d;
     FILE* in = vpp_init_input(input_path.c_str(), &w, &h, &d);
     if (!in)
-        return fprintf(stderr, "cannot initialize input '%s'\n", input_path.c_str()), 1;
+        return fprintf(stderr, "vbm3d: cannot initialize input '%s'\n", input_path.c_str()), 1;
     FILE* out = vpp_init_output(final_path.c_str(), w, h, d);
     if (!out)
-        return fprintf(stderr, "cannot initialize output '%s'\n", final_path.c_str()), 1;
+        return fprintf(stderr, "vbm3d: cannot initialize output '%s'\n", final_path.c_str()), 1;
+	int s1, s2, s3;
+	FILE* sigma_in = vpp_init_input(sigma_path.c_str(), &s1, &s2, &s3);
+	float* sigma;
+	if (!sigma_in)
+	{
+		fprintf(stderr, "vbm3d: cannot initialize sigma '%s'\n", sigma_path);
+		return EXIT_FAILURE;
+	}
+	if (s1 != 1 || s2 != 1 || s3 != 1)
+	{
+		fprintf(stderr, "vbm3d: invalid sigma stream dimensions: %dx%dx%dx\n",
+				s1, s2, s3);
+		return EXIT_FAILURE;
+    }
     
     vector<float*> buffer_input(prms_1.Nf, NULL);
     vector<float*> buffer_basic(prms_2.Nf, NULL);
@@ -321,7 +336,7 @@ int main(int argc, char **argv)
         if(color_space == 0)
             transformColorSpace(buffer_input[index], w, h, d, true);
 
-        if (run_vbm3d(fSigma, buffer_input, buffer_basic, final_estimate, w, h, d, prms_1, prms_2, index, size_buffer, kaiser_window_1, coef_norm_1, coef_norm_inv_1, kaiser_window_2, coef_norm_2, coef_norm_inv_2, lpd, hpd, lpr, hpr)
+        if (run_vbm3d(*sigma, buffer_input, buffer_basic, final_estimate, w, h, d, prms_1, prms_2, index, size_buffer, kaiser_window_1, coef_norm_1, coef_norm_inv_1, kaiser_window_2, coef_norm_2, coef_norm_inv_2, lpd, hpd, lpr, hpr)
                 != EXIT_SUCCESS)
             return EXIT_FAILURE;
 
