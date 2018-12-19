@@ -301,10 +301,10 @@ int main(int argc, char **argv)
         return fprintf(stderr, "vbm3d: cannot initialize output '%s'\n", final_path.c_str()), 1;
 	int s1, s2, s3;
 	FILE* sigma_in = vpp_init_input(sigma_path.c_str(), &s1, &s2, &s3);
-	float* sigma;
+	float sigma;
 	if (!sigma_in)
 	{
-		fprintf(stderr, "vbm3d: cannot initialize sigma '%s'\n", sigma_path);
+		fprintf(stderr, "vbm3d: cannot initialize sigma '%s'\n", sigma_path.c_str());
 		return EXIT_FAILURE;
 	}
 	if (s1 != 1 || s2 != 1 || s3 != 1)
@@ -330,13 +330,14 @@ int main(int argc, char **argv)
     int size_buffer = 0;
     int index = 0;
     while (vpp_read_frame(in, buffer_input[index], w, h, d)) {
+        vpp_read_frame(sigma_in, &sigma, s1, s2, s3);
         size_buffer = std::min(size_buffer+1, (int)prms_1.Nf);
 
         // Change colorspace (RGB to OPP)
         if(color_space == 0)
             transformColorSpace(buffer_input[index], w, h, d, true);
 
-        if (run_vbm3d(*sigma, buffer_input, buffer_basic, final_estimate, w, h, d, prms_1, prms_2, index, size_buffer, kaiser_window_1, coef_norm_1, coef_norm_inv_1, kaiser_window_2, coef_norm_2, coef_norm_inv_2, lpd, hpd, lpr, hpr)
+        if (run_vbm3d(sigma, buffer_input, buffer_basic, final_estimate, w, h, d, prms_1, prms_2, index, size_buffer, kaiser_window_1, coef_norm_1, coef_norm_inv_1, kaiser_window_2, coef_norm_2, coef_norm_inv_2, lpd, hpd, lpr, hpr)
                 != EXIT_SUCCESS)
             return EXIT_FAILURE;
 
