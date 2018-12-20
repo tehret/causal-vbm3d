@@ -116,7 +116,6 @@ void bior_2d_process(
 ,   const int w
 ,   const int d
 ,   std::vector<std::pair<unsigned,unsigned> > const& patch_table
-,   const unsigned nHW
 ,   const unsigned kHW
 ,   std::vector<float> &lpd
 ,   std::vector<float> &hpd

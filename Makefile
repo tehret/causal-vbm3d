@@ -1,13 +1,8 @@
-# C source code
-CSRC	= Utilities/iio.c \
-		mt19937ar.c
 # C++ source code
 CXXSRC	= main.cpp \
 		vbm3d.cpp \
 		vpp/vpp.c \
-		Utilities/Utilities.cpp \
-		Utilities/LibVideoT.cpp \
-		Utilities/LibImages.cpp \
+		Utilities.cpp \
 		lib_transforms.cpp
 
 # all source code
@@ -30,11 +25,9 @@ COPT	= -O3 -ftree-vectorize -funroll-loops
 CXXOPT	= $(COPT)
 
 # C compilation flags
-CFLAGS	= $(COPT) -Wall -Wextra \
-	-Wno-write-strings -ansi -std=c99# -g
+CFLAGS	= $(COPT) -Wno-write-strings -ansi -std=c99# -g
 # C++ compilation flags
-CXXFLAGS	= $(CXXOPT) -Wall -Wextra \
-	-Wno-write-strings -Wno-deprecated -ansi -std=c++11# -g -fsanitize=address
+CXXFLAGS	= $(CXXOPT)	-Wno-write-strings -Wno-deprecated -ansi -std=c++11# -g -fsanitize=address
 # link flags
 LDFLAGS	= -lpng -lm -lfftw3f -ltiff -ljpeg# -fsanitize=address
 
@@ -60,4 +53,4 @@ $(BIN): $(OBJ) $(LIBDEPS)
 	$(CXX) -o $@ $(OBJ) $(LDFLAGS)
 
 clean:
-	rm *.o Utilities/*.o
+	rm *.o

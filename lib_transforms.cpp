@@ -28,12 +28,14 @@ using namespace std;
 /**
  * @brief Compute a full 2D Bior 1.5 spline wavelet (normalized)
  *
- * @param input: vector on which the transform will be applied;
+ * @param buffer: vector containing the buffer of images;
+ * @param w: width of the images contained in the buffer;
  * @param output: will contain the result;
  * @param N: size of the 2D patch (N x N) on which the 2D transform
  *           is applied. Must be a power of 2;
- * @param d_i: for convenience. Shift for input to access to the patch;
- * @param r_i: for convenience. input(i, j) = input[d_i + i * r_i + j];
+ * @param p: spatial position of the patch (encodes also the channel);
+ * @param t: position of the patch in the buffer;
+ * @param c: number of channels of the image;
  * @param d_o: for convenience. Shift for output;
  * @param lpd: low frequencies coefficients for the forward Bior 1.5;
  * @param hpd: high frequencies coefficients for the forward Bior 1.5.
@@ -55,7 +57,7 @@ void bior_2d_forward(
     //! Initializing output
     for (unsigned i = 0; i < N; i++)
         for (unsigned j = 0; j < N; j++)
-            output[i * N + j + d_o] = buffer[t][p + (i + j*w)];
+            output[i * N + j + d_o] = buffer[t][p + c*(i + j*w)];
 
     const unsigned iter_max = log2(N);
     unsigned N_1 = N;

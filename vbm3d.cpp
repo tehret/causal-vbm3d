@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2011, Marc Lebrun <marc.lebrun@cmla.ens-cachan.fr>
+ * Modified work copyright (c) 2018, Thibaud Ehret <ehret.thibaud@gmail.com>
+ * Original work copyright (c) 2011, Marc Lebrun <marc.lebrun@cmla.ens-cachan.fr>
  * All rights reserved.
  *
  * This program is free software: you can use, modify and/or
@@ -15,7 +16,7 @@
  * @file vbm3d.cpp
  * @brief VBM3D denoising functions
  *
- * @author Marc Lebrun <marc.lebrun@cmla.ens-cachan.fr>
+ * @author Thibaud Ehret <ehret.thibaud@gmail.com>
  **/
 
 #include <iostream>
@@ -27,7 +28,7 @@
 #include <string.h>
 
 #include "vbm3d.h"
-#include "Utilities/Utilities.h"
+#include "Utilities.h"
 #include "lib_transforms.h"
 
 #define SQRT2     1.414213562373095
@@ -44,8 +45,6 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
-
-#define TEMPEQ1
 
 /* 
  * In order to reproduce the original VBM3D the DC coefficients are
@@ -70,24 +69,26 @@ bool ComparaisonFirst(pair<float,unsigned> pair1, pair<float,unsigned> pair2)
 /** - Main function - **/
 /** ----------------- **/
 /**
- * @brief run VBM3D process. Depending on whether OpenMP is used or not,
- *        and on the number of available threads, it divides the noisy
- *        video in sub_videos, to process them in parallel.
+ * @brief run VBM3D process.
  *
  * @param sigma: value of assumed noise of the noisy video;
- * @param vid_noisy: noisy video;
- * @param vid_basic: will be the basic estimation after the 1st step
- * @param vid_denoised: will be the denoised final video;
- * @param useSD_h (resp. useSD_w): if true, use weight based
- *        on the standard variation of the 3D group for the
- *        first (resp. second) step, otherwise use the number
- *        of non-zero coefficients after Hard Thresholding
- *        (resp. the norm of Wiener coefficients);
- * @param tau_2D_hard (resp. tau_2D_wien): 2D transform to apply
- *        on every 3D group for the first (resp. second) part.
- *        Allowed values are DCT and BIOR;
- * @param color_space: Transformation from RGB to YUV. Allowed
- *        values are RGB (do nothing), YUV, YCBCR and OPP.
+ * @param buffer_input: vector containing the noisy frames;
+ * @param buffer_basic: vector containing the basic estimations;
+ * @param final_estimate: will be the denoised frame;
+ * @param w: width of a frame;
+ * @param h: height of a frame;
+ * @param d: number of channels of a frame;
+ * @param prms_1: parameters for the first step;
+ * @param prms_2: parameters for the second step;
+ * @param index: index of the frame in the buffer;
+ * @param size_buffer: current size of the buffer;
+ * @param kaiser_window_1: coefficient for the kaiser window for the first step;
+ * @param coef_norm_1: normalization coeffs for the first step;
+ * @param coef_norm_inv_1: inverse normalization coeffs for the first step;
+ * @param kaiser_window_2: coefficient for the kaiser window for the second step;
+ * @param coef_norm_2: normalization coeffs for the second step;
+ * @param coef_norm_inv_2: inverse normalization coeffs for the second step;
+ * @param lpd, hpd, lpr, hpr: bior basis;
  *
  * @return EXIT_FAILURE if color_space has not expected
  *         type, otherwise return EXIT_SUCCESS.
@@ -127,7 +128,7 @@ int run_vbm3d(
     {
         const unsigned nb_cols = ind_size(0, w - prms_1.k, prms_1.p);
         allocate_plan_2d(&plan_2d[0], prms_1.k, FFTW_REDFT10,
-                prms_1.N * d * prms_1.kt);
+                prms_1.N * d);
         allocate_plan_2d(&plan_2d_inv[0], prms_1.k, FFTW_REDFT01,
                 prms_1.N * nb_cols * d);
     }
@@ -172,21 +173,24 @@ int run_vbm3d(
 
 /**
  * @brief Run the basic process of BM3D (1st step). The result
- *        is contained in vid_basic. The video has boundary, which
- *        are here only for block-matching and doesn't need to be
- *        denoised.
+ *        is contained in basic_estimate.
  *
  * @param sigma: value of assumed noise of the video to denoise;
- * @param vid_noisy: noisy video;
- * @param vid_basic: will contain the denoised video after the 1st step;
- * @param width, height, chnls : size of vid_noisy;
- * @param nHard: size of the boundary around vid_noisy;
- * @param useSD: if true, use weight based on the standard variation
- *        of the 3D group for the first step, otherwise use the number
- *        of non-zero coefficients after Hard-thresholding;
- * @param tau_2D: DCT or BIOR;
- * @param plan_2d_for_1, plan_2d_for_2, plan_2d_inv : for convenience. Used
- *        by fftw.
+ * @param buffer: vector containing the noisy frames;
+ * @param basic_estimate: will be the denoised frame;
+ * @param denominator: will containes the aggregation coefficients;
+ * @param w: width of a frame;
+ * @param h: height of a frame;
+ * @param d: number of channels of a frame;
+ * @param prms: parameters;
+ * @param plan_2d: fftw plan for the dct transform;
+ * @param plan_2d_inv: fftw plan for the inverse dct transform;
+ * @param index: index of the frame in the buffer;
+ * @param size_buffer: current size of the buffer;
+ * @param kaiser_window: coefficient for the kaiser window;
+ * @param coef_norm: normalization coeffs;
+ * @param coef_norm_inv: inverse normalization coeffs;
+ * @param lpd, hpd, lpr, hpr: bior basis;
  *
  * @return none.
  **/
@@ -256,7 +260,7 @@ void vbm3d_1st_step(
                 dct_2d_process(table_2D, buffer, w, d, patch_table[ind_j], plan_2d,
                         prms.k, coef_norm);
             else if (prms.T_2D == BIOR)
-                bior_2d_process(table_2D, buffer, w, d, patch_table[ind_j], prms.n, 
+                bior_2d_process(table_2D, buffer, w, d, patch_table[ind_j], 
                         prms.k, lpd, hpd);
 
             //! Build of the 3D group
@@ -309,7 +313,6 @@ void vbm3d_1st_step(
                         for (unsigned p = 0; p < prms.k; p++)
                             for (unsigned q = 0; q < prms.k; q++)
                             {
-                                // FIXME check if correct order
                                 basic_estimate[patch_table[ind_j][n].second + d*(p + q*w)] += kaiser_window[p * prms.k + q] * wx_r_table[c + ind_j * d]
                                     * group_3D_table[p * prms.k + q + n * kHard_2 + c * kHard_2 * nSx_r + dec];
                                 denominator[patch_table[ind_j][n].second + d*(p + q*w)] += kaiser_window[p * prms.k + q] * wx_r_table[c + ind_j * d];
@@ -326,21 +329,25 @@ void vbm3d_1st_step(
 
 /**
  * @brief Run the final process of BM3D (2nd step). The result
- *        is contained in vid_denoised. The video has boundary, which
- *        are here only for block-matching and doesn't need to be
- *        denoised.
- *
+ *        is contained in final_estimate. 
+ *        
  * @param sigma: value of assumed noise of the video to denoise;
- * @param vid_noisy: noisy video;
- * @param vid_basic: contains the denoised video after the 1st step;
- * @param vid_denoised: will contain the final estimate of the denoised
- *        video after the second step;
- * @param width, height, chnls : size of vid_noisy;
- * @param nWien: size of the boundary around vid_noisy;
- * @param useSD: if true, use weight based on the standard variation
- *        of the 3D group for the second step, otherwise use the norm
- *        of Wiener coefficients of the 3D group;
- * @param tau_2D: DCT or BIOR.
+ * @param buffer_input: vector containing the noisy frames;
+ * @param buffer_basic: vector containing the basic frames;
+ * @param final_estimate: will be the denoised frame;
+ * @param denominator: will containes the aggregation coefficients;
+ * @param w: width of a frame;
+ * @param h: height of a frame;
+ * @param d: number of channels of a frame;
+ * @param prms: parameters;
+ * @param plan_2d: fftw plan for the dct transform;
+ * @param plan_2d_inv: fftw plan for the inverse dct transform;
+ * @param index: index of the frame in the buffer;
+ * @param size_buffer: current size of the buffer;
+ * @param kaiser_window: coefficient for the kaiser window;
+ * @param coef_norm: normalization coeffs;
+ * @param coef_norm_inv: inverse normalization coeffs;
+ * @param lpd, hpd, lpr, hpr: bior basis;
  *
  * @return none.
  **/
@@ -418,9 +425,9 @@ void vbm3d_2nd_step(
             }
             else if (prms.T_2D == BIOR)
             {
-                bior_2d_process(table_2D_vid, buffer_input, w, d, patch_table[ind_j], prms.n, 
+                bior_2d_process(table_2D_vid, buffer_input, w, d, patch_table[ind_j], 
                         prms.k, lpd, hpd);
-                bior_2d_process(table_2D_est, buffer_basic, w, d, patch_table[ind_j], prms.n,
+                bior_2d_process(table_2D_est, buffer_basic, w, d, patch_table[ind_j],
                         prms.k, lpd, hpd);
             }
 
@@ -481,7 +488,6 @@ void vbm3d_2nd_step(
                         for (unsigned p = 0; p < prms.k; p++)
                             for (unsigned q = 0; q < prms.k; q++)
                             {
-                                // FIXME check if correct order
                                 final_estimate[patch_table[ind_j][n].second + d*(p*w + q)] += kaiser_window[p * prms.k + q] * wx_r_table[c + ind_j * d]
                                     * group_3D_table[p * prms.k + q + n * kWien_2 + c * kWien_2 * nSx_r + dec];
                                 denominator[patch_table[ind_j][n].second + d*(p*w + q)] += kaiser_window[p * prms.k + q] * wx_r_table[c + ind_j * d];
@@ -494,6 +500,18 @@ void vbm3d_2nd_step(
 	}
 }
 
+/**
+ * @brief Computes the distance between to patches
+ *
+ * @param patch1, patch2 : indexes of the two patch to be compared;
+ * @param frames: vector of frames;
+ * @param w, d: width and number of channels of the frames;
+ * @param patch_table: contains the indexes of the chosen patches;
+ * @param size_buffer : size of the buffer of frames;
+ * @param sizePatch : size of patches
+ *
+ * @return the distance of the patch
+ **/
 inline float patchDistance(
 	unsigned patch1
 , 	unsigned patch2
@@ -521,6 +539,22 @@ inline float patchDistance(
 	return dist / (sPx * sPx * d) / (255.f*255.f);
 }
 
+/**
+ * @brief Computes the nearest patches in a given frame
+ *
+ * @param pidx : patch on which the search is centered;
+ * @param rpidx : reference patch;
+ * @param s: size of the search region;
+ * @param k: size of the pathes;
+ * @param Nb: number of patches to keep at the end;
+ * @param d: bias for patches at the same spatial position than the reference;
+ * @param frames: vector of frames;
+ * @param w, h, d: width, height and number of channels of the frames;
+ * @param size_buffer : size of the buffer of frames;
+ * @param alreadySeen: index of the patch that has already been considered;
+ * @param bestPatches: will contain the index of the best patches 
+ *                      and their distance to the reference;
+ **/
 inline void localSearch(
 	unsigned pidx
 , 	unsigned rpidx
@@ -540,8 +574,7 @@ inline void localSearch(
 	int sWy = s;
 	const int sPx = k;
 
-    unsigned rt, rp;
-    rt = rpidx % size_buffer;
+    unsigned rp;
     rp = rpidx / size_buffer;
 
     unsigned ct, cp;
@@ -586,6 +619,18 @@ inline void localSearch(
 		bestPatches.push_back(distance[ix]);
 }
 
+/**
+ * @brief Computes the nearest patches using the block matching principle of VBM3D
+ *
+ * @param output : will contain the distance to the best patches;
+ * @param index : will contain the indexes to the best patches;
+ * @param idx_curr_frame : index of the frame in which the search start;
+ * @param pidx : spatial position of the reference patch
+ * @param frames : vector of frames;
+ * @param w, h, c : width, height and number of channels of the frames;
+ * @param size_buffer : size of the buffer of frames;
+ * @param prms : parameters
+ **/
 int computeSimilarPatches(
 	std::vector<float>& output
 ,	std::vector<pair<unsigned,unsigned> >& index
@@ -675,18 +720,13 @@ int computeSimilarPatches(
  *
  * @param DCT_table_2D : will contain the 2d DCT transform for all
  *        chosen patches;
- * @param vid : video on which the 2d DCT will be processed;
- * @param plan_1, plan_2 : for convenience. Used by fftw;
- * @param nHW : size of the boundary around vid;
- * @param width, height, chnls: size of vid;
- * @param kHW : size of patches (kHW x kHW);
- * @param i_r: current index of the reference patches;
- * @param step: space in pixels between two references patches;
- * @param coef_norm : normalization coefficients of the 2D DCT;
- * @param i_min (resp. i_max) : minimum (resp. maximum) value
- *        for i_r. In this case the whole 2d transform is applied
- *        on every patches. Otherwise the precomputed 2d DCT is re-used
- *        without processing it.
+ * @param buffer : vector containing the frames;
+ * @param w, d: width and number of channels of the frames;
+ * @param patch_table: contains the indexes of the chosen patches;
+ * @param plan : for convenience. Used by fftw;
+ * @param kHW : size of patches (kHW x kHW). MUST BE A POWER OF 2 !!!
+ * @param lpd : low pass filter of the forward bior1.5 2d transform;
+ * @param hpd : high pass filter of the forward bior1.5 2d transform.
  **/
 void dct_2d_process(
     vector<float> &DCT_table_2D
@@ -740,16 +780,10 @@ void dct_2d_process(
  *
  * @param bior_table_2D : will contain the 2d bior1.5 transform for all
  *        chosen patches;
- * @param vid : video on which the 2d transform will be processed;
- * @param nHW : size of the boundary around vid;
- * @param width, height, chnls: size of vid;
+ * @param buffer : vector containing the frames;
+ * @param w, d: width and number of channels of the frames;
+ * @param patch_table: contains the indexes of the chosen patches;
  * @param kHW : size of patches (kHW x kHW). MUST BE A POWER OF 2 !!!
- * @param i_r: current index of the reference patches;
- * @param step: space in pixels between two references patches;
- * @param i_min (resp. i_max) : minimum (resp. maximum) value
- *        for i_r. In this case the whole 2d transform is applied
- *        on every patches. Otherwise the precomputed 2d DCT is re-used
- *        without processing it;
  * @param lpd : low pass filter of the forward bior1.5 2d transform;
  * @param hpd : high pass filter of the forward bior1.5 2d transform.
  **/
@@ -759,7 +793,6 @@ void bior_2d_process(
 ,   const int w
 ,   const int d
 ,   vector<pair<unsigned,unsigned> > const& patch_table
-,   const unsigned nHW
 ,   const unsigned kHW
 ,   vector<float> &lpd
 ,   vector<float> &hpd
@@ -772,7 +805,7 @@ void bior_2d_process(
 	{
 		const unsigned dc_p = c * kHW_2 * patch_table.size();
 		for(unsigned n = 0; n < patch_table.size(); ++n)
-            bior_2d_forward(buffer, w, bior_table_2D, kHW, patch_table[n].second, patch_table[n].first, c, dc_p + n * kHW_2, lpd, hpd);
+            bior_2d_forward(buffer, w, bior_table_2D, kHW, patch_table[n].second + c, patch_table[n].first, d, dc_p + n * kHW_2, lpd, hpd);
 	}
 }
 
@@ -785,11 +818,9 @@ void bior_2d_process(
  * @param nSx_r : number of similar patches to a reference one;
  * @param kHW : size of patches (kHW x kHW);
  * @param chnls : number of channels of the video;
- * @param sigma_table : contains value of noise for each channel;
+ * @param sigma : value of noise;
  * @param lambdaHard3D : value of thresholding;
  * @param weight_table: the weighting of this 3D group for each channel;
- * @param doWeight: if true process the weighting, do nothing
- *        otherwise.
  *
  * @return none.
  **/
@@ -853,10 +884,9 @@ void ht_filtering_hadamard(
  * @param nSx_r : number of similar patches to a reference one;
  * @param kHW : size of patches (kHW x kHW);
  * @param chnls : number of channels of the video;
- * @param sigma_table : contains value of noise for each channel;
+ * @param sigma : value of noise;
  * @param lambdaHard3D : value of thresholding;
  * @param weight_table: the weighting of this 3D group for each channel;
- * @param doWeight: if true process the weighting, do nothing
  *        otherwise.
  *
  * @return none.
@@ -910,16 +940,14 @@ void ht_filtering_haar(
 /**
  * @brief Wiener filtering using Hadamard transform.
  *
- * @param group_3D_vid : contains the 3D block built on vid_noisy;
- * @param group_3D_est : contains the 3D block built on vid_basic;
+ * @param group_3D_vid : contains the 3D block built on the noisy sequence;
+ * @param group_3D_est : contains the 3D block built on the basic sequence;
  * @param tmp: allocated vector used in hadamard transform for convenience;
  * @param nSx_r : number of similar patches to a reference one;
  * @param kWien : size of patches (kWien x kWien);
  * @param chnls : number of channels of the video;
- * @param sigma_table : contains value of noise for each channel;
+ * @param sigma : value of noise;
  * @param weight_table: the weighting of this 3D group for each channel;
- * @param doWeight: if true process the weighting, do nothing
- *        otherwise.
  *
  * @return none.
  **/
@@ -982,16 +1010,14 @@ void wiener_filtering_hadamard(
 /**
  * @brief Wiener filtering using Haar transform.
  *
- * @param group_3D_vid : contains the 3D block built on vid_noisy;
- * @param group_3D_est : contains the 3D block built on vid_basic;
+ * @param group_3D_vid : contains the 3D block built on the noisy sequence;
+ * @param group_3D_est : contains the 3D block built on the basic sequence;
  * @param tmp: allocated vector used in hadamard transform for convenience;
  * @param nSx_r : number of similar patches to a reference one;
  * @param kWien : size of patches (kWien x kWien);
  * @param chnls : number of channels of the video;
- * @param sigma_table : contains value of noise for each channel;
+ * @param sigma : value of noise;
  * @param weight_table: the weighting of this 3D group for each channel;
- * @param doWeight: if true process the weighting, do nothing
- *        otherwise.
  *
  * @return none.
  **/
@@ -1116,8 +1142,6 @@ void bior_2d_inv(
  * @param kaiser_window[kHW * kHW]: Will contain values of a Kaiser Window;
  * @param coef_norm: Will contain values used to normalize the 2D DCT;
  * @param coef_norm_inv: Will contain values used to normalize the 2D DCT;
- * @param bior1_5_for: will contain coefficients for the bior1.5 forward transform
- * @param bior1_5_inv: will contain coefficients for the bior1.5 inverse transform
  * @param kHW: size of patches (need to be 8 or 12).
  *
  * @return none.

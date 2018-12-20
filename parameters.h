@@ -24,8 +24,6 @@ struct Parameters
 	unsigned Nb;
 	/// Size of the patch (spatial)
 	unsigned k;
-	/// Size of the patch (temporal)
-	unsigned kt;
 	/// Step
 	unsigned p;
 	/// Correcting parameter in the distance computation
